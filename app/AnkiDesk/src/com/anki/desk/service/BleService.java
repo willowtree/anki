@@ -1,5 +1,8 @@
 package com.anki.desk.service;
 
+import java.util.HashMap;
+import java.util.Map;
+
 import android.app.Service;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -10,81 +13,120 @@ import android.bluetooth.BluetoothGattDescriptor;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.IBinder;
-import android.widget.Toast;
-
-import com.anki.desk.activity.MainActivity;
 
 public class BleService extends Service {
 
 	private final static String TAG = "BleService: ";
 	
-	private BluetoothGatt mBluetoothGatt = null;
-
-	private boolean isBle = false;
+	public final static String ACTION = "com.anki.desk.service.BleService";
+	public final static String BROADCAST_ACTION = "com.anki.desk.service.BleService.Broadcast";
 	
-	private boolean connected = false;
+	public final static String REFRESH = "fefresh";
+	public final static String CONNECT_BlE = "connect_ble";
+	public final static String DISCONNECT_BLE = "disconnect_ble";
+	public final static String WRITE_CHARACTERISTIC = "wirte_characteristic"; 
+	public final static String READ_CHARACTERISTIC = "read_characteristic";
+	
+	public final static String bleAddress = "bleAddress";
+	
+	private BluetoothManager bluetoothManager = null;
+	private BluetoothAdapter mBluetoothAdapter = null;
+	
+	public Map<String, BluetoothDevice> deviceMap = new HashMap<String, BluetoothDevice>();
+	private Map<String, BluetoothGatt> gattMap = new HashMap<String, BluetoothGatt>();
+	private StringBuffer crValue = new StringBuffer();
 
 	@Override
 	public void onCreate() {
-		System.out.println("TAG :"
-				+ getPackageManager().hasSystemFeature(
-						PackageManager.FEATURE_BLUETOOTH_LE));
-		if (getPackageManager().hasSystemFeature(
-				PackageManager.FEATURE_BLUETOOTH_LE)) {
-			Toast.makeText(this, "BLE not Surpot", Toast.LENGTH_SHORT).show();
-			isBle = true;
-		}
+		bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
+		mBluetoothAdapter = bluetoothManager.getAdapter();
+		if(!mBluetoothAdapter.isEnabled()) mBluetoothAdapter.enable();//打开蓝牙
 		super.onCreate();
 	}
+	
+	
+
+	@Override
+	public int onStartCommand(Intent intent, int flags, int startId) {
+		// TODO Auto-generated method stub
+		String action = intent.getAction();
+		if(action.equals(REFRESH)){
+			scanBle();
+		}else if(action.equals(CONNECT_BlE)){
+			String address = intent.getStringExtra(bleAddress);
+			connect(address);
+		}else if(action.equals(DISCONNECT_BLE)){
+			String address = intent.getStringExtra(bleAddress);
+			disconnect(address);
+		}
+		return super.onStartCommand(intent, flags, startId);
+	}
+
+
 
 	@Override
 	public IBinder onBind(Intent arg0) {
-		// TODO Auto-generated method stub
+		scanBle();
 		return null;
 	}
 
-	public void initBle() {
-		final BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
-		final BluetoothAdapter mBluetoothAdapter = bluetoothManager
-				.getAdapter();
-
+	public Map<String, BluetoothDevice> getDeviceMap() {
+		return deviceMap;
+	}
+	
+	public void scanBle(){
+		
 		Handler mHandler = new Handler();
 		mHandler.postDelayed(new Runnable() {
 			@Override
 			public void run() {
+				sendBroad(false,true,null);
 				mBluetoothAdapter.stopLeScan(mLeScanCallback);
 				System.out.println(TAG + "ending searching BLE");
 			}
 		}, 10000);
-
+		deviceMap.clear();
+		sendBroad(true,false,null);
 		mBluetoothAdapter.startLeScan(mLeScanCallback);
 		System.out.println(TAG + "start searching BLE");
 	}
+	
+	public void connect(String bleAddress){
+		BluetoothDevice device = null;
+		if(!deviceMap.isEmpty()&&deviceMap.containsKey(bleAddress)){
+			device = deviceMap.get(bleAddress);
+		}
+		if(device!=null){
+			BluetoothGatt  gatt = device.connectGatt(BleService.this,false, mGattCallback);
+			gattMap.put(bleAddress, gatt);
+		}
+	}
+	public void disconnect(String bleAddress){
+		if(!gattMap.isEmpty()&&gattMap.containsKey(bleAddress)){
+			BluetoothGatt gatt = gattMap.get(bleAddress);
+			gatt.disconnect();
+		}
+	}
 
 	private BluetoothAdapter.LeScanCallback mLeScanCallback = new BluetoothAdapter.LeScanCallback() {
-
 		@Override
-		public void onLeScan(final BluetoothDevice device, int rssi,
-				byte[] scanRecord) {
-			// TODO Auto-generated method stub
-			new Runnable() {
-				@Override
-				public void run() {
-					// TODO Auto-generated method stub
-					System.out.println(TAG + device.getName() + "  uuid:"
-							+ device.getUuids() + "   tye:" + device.getType()
-							+ " add:" + device.getAddress());
-					// connection
-					mBluetoothGatt = device.connectGatt(BleService.this,false, mGattCallback); 
-					connected = true;
-				}
-			}.run();
+		public void onLeScan(final BluetoothDevice device, int rssi,byte[] scanRecord) {
+			deviceMap.put(device.getAddress(), device);
+			sendBroad(false,false,device);
 		}
-
 	};
+	
+	public void sendBroad(boolean isBegin, boolean isEnd, BluetoothDevice device){
+		//广播ble列表变化
+		Intent intent = new Intent();
+		intent.putExtra("isBegin", isBegin);
+		intent.putExtra("isEnd", isEnd);
+        intent.putExtra("device", device); 
+        intent.setAction(BROADCAST_ACTION);
+        sendBroadcast(intent);   //发送广播
+	}
 	
 	private final BluetoothGattCallback mGattCallback = new BluetoothGattCallback() {
 
@@ -98,7 +140,19 @@ public class BleService extends Service {
 		@Override
 		public void onCharacteristicRead(BluetoothGatt gatt,
 				BluetoothGattCharacteristic characteristic, int status) {
-			// TODO Auto-generated method stub
+			/*for(BluetoothGattCharacteristic characteristic:characteristics){
+			}*/
+			crValue.setLength(0);
+			final byte[] data = characteristic.getValue();
+			if(data!=null && data.length>0){
+				final StringBuilder stringBuilder = new StringBuilder(data.length);
+				for(byte byteChar : data){
+					stringBuilder.append(String.format("%02X ",byteChar));
+					String s = characteristic.getUuid().toString();
+					crValue.append(s.substring(6,8)+":"+stringBuilder.toString());
+				}
+			}
+			System.out.println(TAG + " read characteristic:"+crValue.toString());
 			super.onCharacteristicRead(gatt, characteristic, status);
 		}
 
