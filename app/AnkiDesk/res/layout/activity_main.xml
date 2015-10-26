@@ -4,5 +4,17 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     tools:context="com.anki.desk.activity.MainActivity"
-    tools:ignore="MergeRootFrame" />
+    tools:ignore="MergeRootFrame" >
 
+    <TextView
+        android:id="@+id/first_click"
+        android:layout_width="110dp"
+        android:layout_height="110dp"
+        android:layout_marginLeft="70dp"
+        android:layout_marginTop="5dp"
+        android:background="@xml/yuan"
+        android:gravity="center"
+        android:textColor="@android:color/white"
+        android:textSize="@dimen/text_size_comment_20" />
+
+</FrameLayout>
